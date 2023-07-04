@@ -28,7 +28,10 @@ struct compile_state {
 
 gbreg_t run(struct compile_state *cs);
 void init(struct compile_state *cs);
+void end(struct compile_state *cs);
 void destroy(struct compile_state *cs);
+
+breg_t label(struct compile_state *cs);
 void patch(struct compile_state *cs, breloc_t reloc, breg_t imm);
 
 #endif /* BCGEN_BCODE_H */

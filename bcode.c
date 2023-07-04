@@ -41,7 +41,7 @@ static void append(struct compile_state *cs, enum bcode_insn label, breg_t imm)
 
 #define IMM s.imm[pc].g
 #define DIMM s.imm[pc].f
-#define NEXT_INSN goto *s.op[pc++]
+#define NEXT_INSN goto *s.op[++pc]
 #define JUMP(i) goto *s.op[pc = (i)]
 
 static gbreg_t _run(struct compile_state *cs, bool init)
@@ -62,6 +62,7 @@ static gbreg_t _run(struct compile_state *cs, bool init)
 	const struct run_state s = cs->s;
 	size_t pc = 0;
 	JUMP(pc);
+
 #include "gen/body.inc"
 
 end: /* we assume there's always at least one general register */
@@ -76,11 +77,31 @@ gbreg_t run(struct compile_state *cs)
 void init(struct compile_state *cs)
 {
 	cs->labels = NULL;
-	cs->s.imm = NULL;
-	cs->s.op = NULL;
-	cs->size = 0;
+	cs->size = 16;
+
+	cs->s.imm = malloc(cs->size * sizeof(*cs->s.imm));
+	assert(cs->s.imm);
+
+	cs->s.op = malloc(cs->size * sizeof(*cs->s.op));
+	assert(cs->s.op);
+
 	cs->pc = 0;
 	_run(cs, true);
+}
+
+void end(struct compile_state *cs)
+{
+	PUSH_OP(END);
+}
+
+breg_t label(struct compile_state *cs)
+{
+	return (breg_t){.g = cs->pc};
+}
+
+void patch(struct compile_state *cs, breloc_t reloc, breg_t imm)
+{
+	cs->s.imm[reloc] = imm;
 }
 
 void destroy(struct compile_state *cs)
