@@ -20,13 +20,15 @@ struct run_state {
 struct compile_state {
 	struct run_state s;
 	void* (*labels);
+	size_t size;
 	size_t pc;
 };
 
 #include "gen/select.h"
 
-void run(struct compile_state *cs);
+gbreg_t run(struct compile_state *cs);
 void init(struct compile_state *cs);
 void destroy(struct compile_state *cs);
+void patch(struct compile_state *cs, breloc_t reloc, breg_t imm);
 
 #endif /* BCGEN_BCODE_H */

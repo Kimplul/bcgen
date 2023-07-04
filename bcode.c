@@ -1,4 +1,9 @@
+#include <stdlib.h>
+#include <assert.h>
+#include <stdint.h>
+#include <stddef.h>
 #include <stdbool.h>
+
 #include "bcode.h"
 
 enum bcode_insn {
@@ -8,6 +13,22 @@ enum bcode_insn {
 
 static void append(struct compile_state *cs, enum bcode_insn label, breg_t imm)
 {
+	assert(cs->labels);
+
+	if (cs->pc == cs->size) {
+		cs->size *= 2;
+		/* better memory checks could be a good idea */
+		void *p = realloc(cs->s.op, cs->size * sizeof(*cs->s.op));
+		assert(p);
+
+		p = realloc(cs->s.imm, cs->size * sizeof(*cs->s.imm));
+		assert(p);
+	}
+
+	struct run_state *s = &cs->s;
+	s->op[cs->pc] = cs->labels[label];
+	s->imm[cs->pc] = imm;
+	cs->pc++;
 }
 
 #define RELOC cs->pc
@@ -23,7 +44,7 @@ static void append(struct compile_state *cs, enum bcode_insn label, breg_t imm)
 #define NEXT_INSN goto *s.op[pc++]
 #define JUMP(i) goto *s.op[pc = (i)]
 
-static void _run(struct compile_state *cs, bool init)
+static gbreg_t _run(struct compile_state *cs, bool init)
 {
 	static void *labels[] = {
 		[END] = &&end,
@@ -32,7 +53,7 @@ static void _run(struct compile_state *cs, bool init)
 
 	if (init) {
 		cs->labels = labels;
-		return;
+		return 0;
 	}
 
 #include "gen/head.inc"
@@ -43,20 +64,27 @@ static void _run(struct compile_state *cs, bool init)
 	JUMP(pc);
 #include "gen/body.inc"
 
-end:
-	return;
+end: /* we assume there's always at least one general register */
+	return r0;
 }
 
-void run(struct compile_state *cs)
+gbreg_t run(struct compile_state *cs)
 {
-	_run(cs, false);
+	return _run(cs, false);
 }
 
 void init(struct compile_state *cs)
 {
+	cs->labels = NULL;
+	cs->s.imm = NULL;
+	cs->s.op = NULL;
+	cs->size = 0;
+	cs->pc = 0;
 	_run(cs, true);
 }
 
 void destroy(struct compile_state *cs)
 {
+	free(cs->s.op);
+	free(cs->s.imm);
 }
