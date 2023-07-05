@@ -9,12 +9,13 @@ Relies on some non-standard C, but should in theory be completely portable.
 bcgen <rules.py>
 ```
 
-The script is pretty bare bones at the moment. Essentially, it generates a number of files in a
-directory called `gen` in the working directory. These generated files are included by `bcode.c`,
-which you can compile into an object file that provides an interface to compiling and running your
-bytecode system.
+The script is pretty bare bones at the moment. Essentially, it generates a number of
+files in a directory called `gen` in the working directory. These generated files are
+included by `bcode.c`, which you can compile into an object file that provides an
+interface to compiling and running your bytecode system.
 
-`rules.py` is a file that describes which operations to generate. Here's an example `rules.py`:
+`rules.py` is a file that describes which operations to generate.
+Here's an example `rules.py`:
 ```
 g = BCGen(r = 4, f = 0)
 g.rule('addi', 'rRR__I', 'R0 = R1 + IMM;')
@@ -41,8 +42,8 @@ later be patched with a value. `_` means that no relocation is necessary.
 
 `R` refers to a general purpose register, and `F` refers to a floating point register.
 `_` means the register slot is unused. When compiling an operation, the user can pass
-in a number for each register slot that is the index of the register to use. Each operation
-can take a maximum of four register arguments.
+in a number for each register slot that is the index of the register to use. Each
+operation can take a maximum of four register arguments.
 
 3) Immediate slot, `I`, `D` or `_`:
 
@@ -51,26 +52,28 @@ can take a maximum of four register arguments.
 to the operation at runtime.
 
 The body of the instruction is what gets executed. The register arguments are referenced
-via `R` + index for the general purpose registers and `F` + index for the floating point registers.
-Immediate values are accessed via `IMM` for integer and `DIMM` for doubles, respectively.
+via `R` + slot index for the general purpose registers and `F` + slot index for the
+floating point registers. Immediate values are accessed via `IMM` for integer and `DIMM`
+for doubles, respectively.
 
-The index to use when specifying register arguments is the register slot index, so for exampl
-the format `_R_FR_` makes registers `R0`, `F2` and `R3` available to the body. It's *very* important
-to note that `R0` does not refer to the literal first register in the machine, rather it's the
-first register argument the user gives when compiling the instruction.
+The index to use when specifying register arguments is the register slot index, so for
+exampl the format `_R_FR_` makes registers `R0`, `F2` and `R3` available to the body.
+It's *very* important to note that `R0` does not refer to the literal first register in
+the bytecode system, rather it's the first register argument the user gives when
+compiling the instruction.
 
-Each instruction can be compiled via the generated procedure `select_name()`. For the example
-`rules.py` above, to compile the instruction `addi` you would call `select_addi(0, 2, 500);`.
-The first and second arguments are the register indexes to use, and map to `R0` and `R1`.
-The immediate is always last, and in this case it's `500`. One way to look at the situation is
-that we're requesting that a bytecode instruction be compiled where register 2 plus `500` be
-placed into register 0.
+Each instruction can be compiled via the generated procedure `select_name()`. For the
+example `rules.py` above, to compile the instruction `addi` you would call
+`select_addi(0, 2, 500);`. The first and second arguments are the register indexes to
+use, and map to `R0` and `R1`. The immediate is always last, and in this case it's
+`500`. One way to look at the situation is that we're requesting that a bytecode
+instruction be compiled where register 2 plus `500` be placed into register 0.
 
 ## Jumps
 
-By default the following bytecode instruction is executed automatically. You can however specify
-explicit jumps, such as in branches, by `JUMP(target)`. The target can be patched in later or be
-specified as an immediate. For example:
+By default the following bytecode instruction is executed automatically. You can however
+specify explicit jumps, such as in branches, by `JUMP(target)`. The target can be patched
+in later or be specified as an immediate. For example:
 ```
 # rules.py
 ...
@@ -91,8 +94,8 @@ patch(reloc, label); // now we know where we want to jump
 
 (Note that the patch system should be improved, but good enough for now)
 
-See `example` for a simple test program that generates a limited set of operations that are enough
-to sum the first billion integers.
+See `example` for a simple test program that generates a limited set of operations
+that are enough to sum the first billion integers.
 
 ## Performance
 
@@ -158,4 +161,7 @@ up considerably.
 
 Finally, note that the system doesn't assign any specific usage conventions
 to registers. You are responsible for maintaining an ABI of some kind, with
-stack/frame register(s), callee-save vs. caller-save, etc.
+stack/frame register(s), callee-save vs. caller-save, etc. How the stack should
+be passed to the bytecode is still TODO, at the moment you can preallocate the
+stack and pass it in as an immediate to an instruction, but this feels clunky
+and I don't like it.
