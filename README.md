@@ -165,3 +165,22 @@ stack/frame register(s), callee-save vs. caller-save, etc. How the stack should
 be passed to the bytecode is still TODO, at the moment you can preallocate the
 stack and pass it in as an immediate to an instruction, but this feels clunky
 and I don't like it.
+
+# Slow compilation times
+
+With massive systems, some optimizations passes have essentially no effect
+but take up an immense amount of time.
+
+GCC users should compile `bcode.c` with `-fno-tree-fre -fno-gcse
+-fno-expensive-optimizations`. This seems to have minimal impact on runtime
+performance, but has massive cost savings on compilation time. `-fno-gcse` is
+recommended by the GCC manual for computed gotos, though I didn't see any
+improvement in the generated code on x86. Maybe other architectures benefit
+from it more? Dunno. `-fno-tree-slp-vectorize` can also be useful to decrease
+memory usage, but doesn't seem to have too much of an effect on the compilation
+speed.
+
+LLVM users should use `-fno-slp-vectorize` which does help a bit, but
+`-ftime-report` doesn't show any obvious other flags that should be turned off.
+I'm sure there are, I just haven't looked hard enough. In any case, GCC I
+suppose is the currently recommended compiler.
