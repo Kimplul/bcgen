@@ -54,7 +54,7 @@ bcode_src_fmt = '''
 #include <stddef.h>
 #include <stdbool.h>
 
-#include "bcode.h"
+#include "{}.h"
 
 {}
 
@@ -232,13 +232,13 @@ class BCGen:
         gregs = ['ubcval_t r' + str(i) + ' = 0;\n' for i in range(r)]
         fregs = ['dbcval_t f' + str(i) + ' = 0;\n' for i in range(f)]
 
-        self.regs = ''
-        self.body = ''
-        self.enum = ''
-        self.macro = ''
-        self.static = ''
-        self.select = ''
-        self.select_header = ''
+        self.regs = []
+        self.body = []
+        self.enum = []
+        self.macro = []
+        self.static = []
+        self.select = []
+        self.select_header = []
 
         for g in gregs:
             self.regs += g
@@ -250,13 +250,13 @@ class BCGen:
         label = gen_label(name, r0, r1, r2, r3) + ': '
         macro = '{}({}, {}, {}, {}); '.format(name.upper(), r0, r1, r2, r3)
         next = 'NEXT_INSN;'
-        self.body += label + macro + next + '\n'
+        self.body.append(label + macro + next + '\n')
 
     # gen should maybe just generate the string and print_ would print it?
     def gen_static_instance(self, name, r0, r1, r2, r3):
         label = gen_label(name, r0, r1, r2, r3)
         enum = gen_enum(name, r0, r1, r2, r3)
-        self.static += '[' + enum + '] = &&' + label + ',\n'
+        self.static.append('[' + enum + '] = &&' + label + ',\n')
 
     def gen_select_instance(self, name, r0, r1, r2, r3):
         c0 = gen_cond(r0, 0)
@@ -265,11 +265,11 @@ class BCGen:
         c3 = gen_cond(r3, 3)
         cond = c0 + ' && ' + c1 + ' && ' + c2 + ' && ' + c3
         action = 'label = ' + gen_enum(name, r0, r1, r2, r3) + ';'
-        self.select += 'else if (' + cond + ') {' + action + '}\n'
+        self.select.append('else if (' + cond + ') {' + action + '}\n')
 
     def gen_enum_instance(self, name, r0, r1, r2, r3):
         enum = gen_enum(name, r0, r1, r2, r3)
-        self.enum += enum + ',\n'
+        self.enum.append(enum + ',\n')
 
     def gen_macro(self, name, fmt, body):
         name = name.upper()
@@ -282,7 +282,7 @@ class BCGen:
         macro = '#define {}({}, {}, {}, {}) {}\n'.format(
                 name, p0, p1, p2, p3, body.replace('\n', ''))
 
-        self.macro += macro
+        self.macro.append(macro)
 
     def place(self, fmt, i):
         c = fmt[i + 1]
@@ -310,16 +310,16 @@ class BCGen:
 
     def gen_select(self, name, fmt):
         sign = gen_signature(name, fmt)
-        self.select_header += sign + ';\n'
+        self.select_header.append(sign + ';\n')
 
         sign = gen_signature(name, fmt)
-        self.select += sign + '\n'
-        self.select += '{\nenum bcode_insn label = 0;\n'
+        self.select.append(sign + '\n')
+        self.select.append('{\nenum bcode_insn label = 0;\n')
         if fmt[0] == 'r':
-            self.select += 'bcreloc_t reloc = RELOC;\n'
+            self.select.append('bcreloc_t reloc = RELOC;\n')
 
         # kind of ugly but simplifies gen_select_instance a fair bit
-        self.select += 'if (0) {}\n'
+        self.select.append('if (0) {}\n')
 
         for r0 in self.place(fmt, 0):
             for r1 in self.place(fmt, 1):
@@ -328,16 +328,16 @@ class BCGen:
                         self.gen_select_instance(name, r0, r1, r2, r3)
 
         if fmt[5] == 'I':
-            self.select += 'PUSH_IMM_OP(label, imm);\n'
+            self.select.append('PUSH_IMM_OP(label, imm);\n')
         elif fmt[5] == 'D':
-            self.select += 'PUSH_DIMM_OP(label, dimm);\n'
+            self.select.append('PUSH_DIMM_OP(label, dimm);\n')
         else:
-            self.select += 'PUSH_OP(label);\n'
+            self.select.append('PUSH_OP(label);\n')
 
         if fmt[0] == 'r':
-            self.select += 'return reloc;\n'
+            self.select.append('return reloc;\n')
 
-        self.select += '}\n'
+        self.select.append('}\n')
 
     def gen_enum(self, name, fmt):
         for r0 in self.place(fmt, 0):
@@ -358,21 +358,22 @@ class BCGen:
     def write(self, name='bcode'):
         with open(name + '.h', 'w') as f:
             f.write(bcode_header_fmt.format(
-                self.select_header
+                ''.join(self.select_header)
                 ))
 
         with open(name + '.c', 'w') as f:
             # unsure if this is the best way to handle format strings, but I guess
             # it works for now
             f.write(bcode_src_fmt.format(
-                self.head,
-                self.enum,
-                self.select,
-                self.macro,
-                self.static,
-                self.regs,
-                self.extra,
-                self.body
+                name,
+                ''.join(self.head),
+                ''.join(self.enum),
+                ''.join(self.select),
+                ''.join(self.macro),
+                ''.join(self.static),
+                ''.join(self.regs),
+                ''.join(self.extra),
+                ''.join(self.body)
                 ))
 
 assert(len(sys.argv) == 2)
