@@ -3,6 +3,169 @@
 import sys
 import pathlib
 
+bcode_header_fmt = '''
+#ifndef BCGEN_BCODE_H
+#define BCGEN_BCODE_H
+
+#include <stddef.h>
+
+typedef unsigned long ubcval_t;
+typedef signed long sbcval_t;
+typedef float fbcval_t;
+typedef double dbcval_t;
+typedef size_t bcreloc_t;
+
+typedef union {{
+	ubcval_t r;
+	sbcval_t s;
+	fbcval_t f;
+	dbcval_t d;
+}} bcval_t;
+
+struct run_state {{
+	void* (*op);
+	bcval_t *imm;
+}};
+
+struct compile_state {{
+	struct run_state s;
+	void* (*labels);
+	size_t size;
+	size_t pc;
+}};
+
+{}
+
+ubcval_t run(struct compile_state *cs);
+void init(struct compile_state *cs);
+void end(struct compile_state *cs);
+void destroy(struct compile_state *cs);
+
+bcval_t label(struct compile_state *cs);
+void patch(struct compile_state *cs, bcreloc_t reloc, bcval_t imm);
+
+#endif /* BCGEN_BCODE_H */
+'''
+
+bcode_src_fmt = '''
+#include <stdlib.h>
+#include <assert.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <stdbool.h>
+
+#include "bcode.h"
+
+{}
+
+enum bcode_insn {{
+	END,
+    {}
+}};
+
+static void append(struct compile_state *cs, enum bcode_insn label, bcval_t imm)
+{{
+	assert(cs->labels);
+
+	if (cs->pc == cs->size) {{
+		cs->size *= 2;
+		/* better memory checks could be a good idea */
+		void *p = realloc(cs->s.op, cs->size * sizeof(*cs->s.op));
+		assert(p);
+
+		p = realloc(cs->s.imm, cs->size * sizeof(*cs->s.imm));
+		assert(p);
+	}}
+
+	struct run_state *s = &cs->s;
+	s->op[cs->pc] = cs->labels[label];
+	s->imm[cs->pc] = imm;
+	cs->pc++;
+}}
+
+#define RELOC cs->pc
+#define PUSH_OP(label) append(cs, label, (bcval_t){{ .r = 0 }})
+#define PUSH_IMM_OP(label, imm) append(cs, label, (bcval_t){{ .r = imm }})
+#define PUSH_DIMM_OP(label, dimm) append(cs, label, (bcval_t){{ .d = dimm }})
+
+{}
+{}
+
+#define IMM s.imm[pc].r
+#define SIMM s.imm[pc].s
+#define FIMM s.imm[pc].f
+#define DIMM s.imm[pc].d
+
+#define NEXT_INSN goto *s.op[++pc]
+#define JUMP(i) goto *s.op[pc = (i)]
+
+static ubcval_t _run(struct compile_state *cs, bool init)
+{{
+	static void *labels[] = {{
+		[END] = &&end,
+        {}
+	}};
+
+	if (init) {{
+		cs->labels = labels;
+		return 0;
+	}}
+
+{}
+{}
+
+	const struct run_state s = cs->s;
+	size_t pc = 0;
+	JUMP(pc);
+
+{}
+
+end: /* we assume there's always at least one general register */
+	return r0;
+}}
+
+ubcval_t run(struct compile_state *cs)
+{{
+	return _run(cs, false);
+}}
+
+void init(struct compile_state *cs)
+{{
+	cs->labels = NULL;
+	cs->size = 16;
+
+	cs->s.imm = malloc(cs->size * sizeof(*cs->s.imm));
+	assert(cs->s.imm);
+
+	cs->s.op = malloc(cs->size * sizeof(*cs->s.op));
+	assert(cs->s.op);
+
+	cs->pc = 0;
+	_run(cs, true);
+}}
+
+void end(struct compile_state *cs)
+{{
+	PUSH_OP(END);
+}}
+
+bcval_t label(struct compile_state *cs)
+{{
+	return (bcval_t){{.r = cs->pc}};
+}}
+
+void patch(struct compile_state *cs, bcreloc_t reloc, bcval_t imm)
+{{
+	cs->s.imm[reloc] = imm;
+}}
+
+void destroy(struct compile_state *cs)
+{{
+	free(cs->s.op);
+	free(cs->s.imm);
+}}
+'''
+
 def check_fmt(fmt):
     # todo: should sign value be encoded in the registers?
     assert(len(fmt) == 6)
@@ -23,18 +186,6 @@ def gen_label(name, r0, r1, r2, r3):
 
 def gen_enum(name, r0, r1, r2, r3):
     return gen_label(name, r0, r1, r2, r3).upper()
-
-def gen_exec_instance(f, name, r0, r1, r2, r3):
-    label = gen_label(name, r0, r1, r2, r3) + ': '
-    macro = '{}({}, {}, {}, {}); '.format(name.upper(), r0, r1, r2, r3)
-    next = 'NEXT_INSN;'
-    f.write(label + macro + next + '\n')
-
-# gen should maybe just generate the string and print_ would print it?
-def gen_static_instance(f, name, r0, r1, r2, r3):
-    label = gen_label(name, r0, r1, r2, r3)
-    enum = gen_enum(name, r0, r1, r2, r3)
-    f.write('[' + enum + '] = &&' + label + ',\n')
 
 def gen_params(fmt):
     n = 0
@@ -70,75 +221,68 @@ def gen_cond(r, i):
 
     return 'a' + str(i) + ' == ' + r[1:]
 
-def gen_select_instance(f, name, r0, r1, r2, r3):
-    c0 = gen_cond(r0, 0)
-    c1 = gen_cond(r1, 1)
-    c2 = gen_cond(r2, 2)
-    c3 = gen_cond(r3, 3)
-    cond = c0 + ' && ' + c1 + ' && ' + c2 + ' && ' + c3
-    action = 'label = ' + gen_enum(name, r0, r1, r2, r3) + ';'
-    f.write('else if (' + cond + ') {' + action + '}\n')
-
-def gen_enum_instance(f, name, r0, r1, r2, r3):
-    enum = gen_enum(name, r0, r1, r2, r3)
-    f.write(enum + ',\n')
-
 class BCGen:
     def __init__(self, r = 3, f = 3, extra='', head=''):
         self.r = r
         self.f = f
 
-        # make sure gen dir exists
-        pathlib.Path('gen').mkdir(exist_ok=True)
+        self.extra = extra
+        self.head = head
 
-        # clear out files
-        with open('gen/body.inc', 'w') as inc:
-            pass
+        gregs = ['ubcval_t r' + str(i) + ' = 0;\n' for i in range(r)]
+        fregs = ['dbcval_t f' + str(i) + ' = 0;\n' for i in range(f)]
 
-        with open('gen/macro.inc', 'w') as inc:
-            pass
+        self.regs = ''
+        self.body = ''
+        self.enum = ''
+        self.macro = ''
+        self.static = ''
+        self.select = ''
+        self.select_header = ''
 
-        with open('gen/static.inc', 'w') as inc:
-            pass
+        for g in gregs:
+            self.regs += g
 
-        with open('gen/select.inc', 'w') as inc:
-            pass
+        for f in fregs:
+            self.regs += f
 
-        with open('gen/enum.inc', 'w') as inc:
-            pass
+    def gen_exec_instance(self, name, r0, r1, r2, r3):
+        label = gen_label(name, r0, r1, r2, r3) + ': '
+        macro = '{}({}, {}, {}, {}); '.format(name.upper(), r0, r1, r2, r3)
+        next = 'NEXT_INSN;'
+        self.body += label + macro + next + '\n'
 
-        with open('gen/select.h', 'w') as h:
-            pass
+    # gen should maybe just generate the string and print_ would print it?
+    def gen_static_instance(self, name, r0, r1, r2, r3):
+        label = gen_label(name, r0, r1, r2, r3)
+        enum = gen_enum(name, r0, r1, r2, r3)
+        self.static += '[' + enum + '] = &&' + label + ',\n'
 
-        with open('gen/extra.inc', 'w') as inc:
-            inc.write(extra)
+    def gen_select_instance(self, name, r0, r1, r2, r3):
+        c0 = gen_cond(r0, 0)
+        c1 = gen_cond(r1, 1)
+        c2 = gen_cond(r2, 2)
+        c3 = gen_cond(r3, 3)
+        cond = c0 + ' && ' + c1 + ' && ' + c2 + ' && ' + c3
+        action = 'label = ' + gen_enum(name, r0, r1, r2, r3) + ';'
+        self.select += 'else if (' + cond + ') {' + action + '}\n'
 
-        with open('gen/head.inc', 'w') as inc:
-            inc.write(head)
-
-        with open('gen/regs.inc', 'w') as inc:
-            gregs = ['ubcval_t r' + str(i) + ' = 0;\n' for i in range(r)]
-            fregs = ['dbcval_t f' + str(i) + ' = 0;\n' for i in range(f)]
-
-            for g in gregs:
-                inc.write(g);
-
-            for f in fregs:
-                inc.write(f)
+    def gen_enum_instance(self, name, r0, r1, r2, r3):
+        enum = gen_enum(name, r0, r1, r2, r3)
+        self.enum += enum + ',\n'
 
     def gen_macro(self, name, fmt, body):
-        with open('gen/macro.inc', 'a') as f:
-            name = name.upper()
+        name = name.upper()
 
-            p0 = param(fmt, 0)
-            p1 = param(fmt, 1)
-            p2 = param(fmt, 2)
-            p3 = param(fmt, 3)
+        p0 = param(fmt, 0)
+        p1 = param(fmt, 1)
+        p2 = param(fmt, 2)
+        p3 = param(fmt, 3)
 
-            macro = '#define {}({}, {}, {}, {}) {}\n'.format(
-                    name, p0, p1, p2, p3, body.replace('\n', ''))
+        macro = '#define {}({}, {}, {}, {}) {}\n'.format(
+                name, p0, p1, p2, p3, body.replace('\n', ''))
 
-            f.write(macro)
+        self.macro += macro
 
     def place(self, fmt, i):
         c = fmt[i + 1]
@@ -151,60 +295,56 @@ class BCGen:
         return [""]
 
     def gen_body(self, name, fmt):
-        with open('gen/body.inc', 'a') as f:
-            for r0 in self.place(fmt, 0):
-                for r1 in self.place(fmt, 1):
-                    for r2 in self.place(fmt, 2):
-                        for r3 in self.place(fmt, 3):
-                            gen_exec_instance(f, name, r0, r1, r2, r3)
+        for r0 in self.place(fmt, 0):
+            for r1 in self.place(fmt, 1):
+                for r2 in self.place(fmt, 2):
+                    for r3 in self.place(fmt, 3):
+                        self.gen_exec_instance(name, r0, r1, r2, r3)
 
     def gen_static(self, name, fmt):
-        with open('gen/static.inc', 'a') as f:
-            for r0 in self.place(fmt, 0):
-                for r1 in self.place(fmt, 1):
-                    for r2 in self.place(fmt, 2):
-                        for r3 in self.place(fmt, 3):
-                            gen_static_instance(f, name, r0, r1, r2, r3)
+        for r0 in self.place(fmt, 0):
+            for r1 in self.place(fmt, 1):
+                for r2 in self.place(fmt, 2):
+                    for r3 in self.place(fmt, 3):
+                        self.gen_static_instance(name, r0, r1, r2, r3)
 
     def gen_select(self, name, fmt):
-        with open('gen/select.h', 'a') as f:
-            sign = gen_signature(name, fmt)
-            f.write(sign + ';\n')
+        sign = gen_signature(name, fmt)
+        self.select_header += sign + ';\n'
 
-        with open('gen/select.inc', 'a') as f:
-            sign = gen_signature(name, fmt)
-            f.write(sign + '\n')
-            f.write('{\nenum bcode_insn label = 0;\n')
-            if fmt[0] == 'r':
-                f.write('bcreloc_t reloc = RELOC;\n')
-            # kind of ugly but simplifies gen_select_instance a fair bit
-            f.write('if (0) {}\n')
+        sign = gen_signature(name, fmt)
+        self.select += sign + '\n'
+        self.select += '{\nenum bcode_insn label = 0;\n'
+        if fmt[0] == 'r':
+            self.select += 'bcreloc_t reloc = RELOC;\n'
 
-            for r0 in self.place(fmt, 0):
-                for r1 in self.place(fmt, 1):
-                    for r2 in self.place(fmt, 2):
-                        for r3 in self.place(fmt, 3):
-                            gen_select_instance(f, name, r0, r1, r2, r3)
+        # kind of ugly but simplifies gen_select_instance a fair bit
+        self.select += 'if (0) {}\n'
 
-            if fmt[5] == 'I':
-                f.write('PUSH_IMM_OP(label, imm);\n')
-            elif fmt[5] == 'D':
-                f.write('PUSH_DIMM_OP(label, dimm);\n')
-            else:
-                f.write('PUSH_OP(label);\n')
+        for r0 in self.place(fmt, 0):
+            for r1 in self.place(fmt, 1):
+                for r2 in self.place(fmt, 2):
+                    for r3 in self.place(fmt, 3):
+                        self.gen_select_instance(name, r0, r1, r2, r3)
 
-            if fmt[0] == 'r':
-                f.write('return reloc;\n')
+        if fmt[5] == 'I':
+            self.select += 'PUSH_IMM_OP(label, imm);\n'
+        elif fmt[5] == 'D':
+            self.select += 'PUSH_DIMM_OP(label, dimm);\n'
+        else:
+            self.select += 'PUSH_OP(label);\n'
 
-            f.write('}\n')
+        if fmt[0] == 'r':
+            self.select += 'return reloc;\n'
+
+        self.select += '}\n'
 
     def gen_enum(self, name, fmt):
-        with open('gen/enum.inc', 'a') as f:
-            for r0 in self.place(fmt, 0):
-                for r1 in self.place(fmt, 1):
-                    for r2 in self.place(fmt, 2):
-                        for r3 in self.place(fmt, 3):
-                            gen_enum_instance(f, name, r0, r1, r2, r3)
+        for r0 in self.place(fmt, 0):
+            for r1 in self.place(fmt, 1):
+                for r2 in self.place(fmt, 2):
+                    for r3 in self.place(fmt, 3):
+                        self.gen_enum_instance(name, r0, r1, r2, r3)
 
 
     def rule(self, name, fmt, body):
@@ -214,6 +354,26 @@ class BCGen:
         self.gen_select(name, fmt)
         self.gen_body(name, fmt)
         self.gen_enum(name, fmt)
+
+    def write(self, name='bcode'):
+        with open(name + '.h', 'w') as f:
+            f.write(bcode_header_fmt.format(
+                self.select_header
+                ))
+
+        with open(name + '.c', 'w') as f:
+            # unsure if this is the best way to handle format strings, but I guess
+            # it works for now
+            f.write(bcode_src_fmt.format(
+                self.head,
+                self.enum,
+                self.select,
+                self.macro,
+                self.static,
+                self.regs,
+                self.extra,
+                self.body
+                ))
 
 assert(len(sys.argv) == 2)
 exec(open(sys.argv[1]).read())

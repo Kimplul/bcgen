@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "../bcode.h"
+#include "bcode.h"
 
 int main()
 {
@@ -10,10 +10,10 @@ int main()
 	select_movi(&cs, 1, 1000000000); // limit
 	select_movi(&cs, 0, 0); // total
 
-	breg_t l = label(&cs); // top
+	bcval_t l = label(&cs); // top
 	select_addr(&cs, 0, 0, 2); // add iter to total
 	select_addi(&cs, 2, 2, 1);
-	breloc_t r = select_bltr(&cs, 2, 1, 0); // 0 is placeholder value,
+	bcreloc_t r = select_bltr(&cs, 2, 1, 0); // 0 is placeholder value,
 						// should maybe add in an
 						// UNDEFINED macro or something
 	end(&cs);

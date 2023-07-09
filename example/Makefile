@@ -5,13 +5,11 @@ all: exec
 exec: bcode.o main.o
 	$(CC) $(CFLAGS) $^ -o $@
 
-bcode.o: ../bcode.c
+bcode.o: bcode.c
 	$(CC) $(CFLAGS) -c $^ -o $@
 
-../bcode.c: ../gen/select.h
-../gen/select.h: rules.py
-	cd .. && ./bcgen example/rules.py
-	touch ../bcode.c # just to get make to wake up
+bcode.c: rules.py
+	../bcgen rules.py
 
 .PHONY: clean
 clean:

@@ -1,3 +1,4 @@
-gen/*
 *.o
+example/bcode.c
+example/bcode.h
 example/exec
