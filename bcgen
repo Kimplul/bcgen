@@ -321,6 +321,9 @@ class BCGen:
         # kind of ugly but simplifies gen_select_instance a fair bit
         self.select.append('if (0) {}\n')
 
+        # we could potentially just calculate the wanted label directly and skip
+        # the huge number of if statements, potentially giving us a slight
+        # compile time speedup
         for r0 in self.place(fmt, 0):
             for r1 in self.place(fmt, 1):
                 for r2 in self.place(fmt, 2):
