@@ -4,6 +4,7 @@ import sys
 import pathlib
 
 def check_fmt(fmt):
+    # todo: should sign value be encoded in the registers?
     assert(len(fmt) == 6)
     assert(fmt[0] == '_' or fmt[0] == 'r')
 
@@ -48,16 +49,16 @@ def gen_params(fmt):
 
     i = ""
     if fmt[5] == 'I':
-        i = ', gbreg_t imm'
+        i = ', ubcval_t imm'
     elif fmt[5] == 'D':
-        i = ', fbreg_t dimm'
+        i = ', fbcval_t dimm'
 
     return '(struct compile_state *cs' + r + i + ')'
 
 def gen_signature(name, fmt):
     ret = 'void '
     if fmt[0] == 'r':
-        ret = 'breloc_t '
+        ret = 'bcreloc_t '
 
     n = 'select_' + name
     p = gen_params(fmt)
@@ -83,7 +84,7 @@ def gen_enum_instance(f, name, r0, r1, r2, r3):
     f.write(enum + ',\n')
 
 class BCGen:
-    def __init__(self, r = 3, f = 3, head=''):
+    def __init__(self, r = 3, f = 3, extra='', head=''):
         self.r = r
         self.f = f
 
@@ -109,12 +110,15 @@ class BCGen:
         with open('gen/select.h', 'w') as h:
             pass
 
+        with open('gen/extra.inc', 'w') as inc:
+            inc.write(extra)
+
         with open('gen/head.inc', 'w') as inc:
             inc.write(head)
 
         with open('gen/regs.inc', 'w') as inc:
-            gregs = ['gbreg_t r' + str(i) + ' = 0;\n' for i in range(r)]
-            fregs = ['fbreg_t f' + str(i) + ' = 0;\n' for i in range(f)]
+            gregs = ['ubcval_t r' + str(i) + ' = 0;\n' for i in range(r)]
+            fregs = ['dbcval_t f' + str(i) + ' = 0;\n' for i in range(f)]
 
             for g in gregs:
                 inc.write(g);
@@ -132,7 +136,7 @@ class BCGen:
             p3 = param(fmt, 3)
 
             macro = '#define {}({}, {}, {}, {}) {}\n'.format(
-                    name, p0, p1, p2, p3, body)
+                    name, p0, p1, p2, p3, body.replace('\n', ''))
 
             f.write(macro)
 
@@ -172,7 +176,7 @@ class BCGen:
             f.write(sign + '\n')
             f.write('{\nenum bcode_insn label = 0;\n')
             if fmt[0] == 'r':
-                f.write('breloc_t reloc = RELOC;\n')
+                f.write('bcreloc_t reloc = RELOC;\n')
             # kind of ugly but simplifies gen_select_instance a fair bit
             f.write('if (0) {}\n')
 

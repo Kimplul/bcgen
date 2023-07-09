@@ -3,18 +3,22 @@
 
 #include <stddef.h>
 
-typedef unsigned long gbreg_t;
-typedef double fbreg_t;
-typedef size_t breloc_t;
+typedef unsigned long ubcval_t;
+typedef signed long sbcval_t;
+typedef float fbcval_t;
+typedef double dbcval_t;
+typedef size_t bcreloc_t;
 
 typedef union {
-	gbreg_t g;
-	fbreg_t f;
-} breg_t;
+	ubcval_t r;
+	sbcval_t s;
+	fbcval_t f;
+	dbcval_t d;
+} bcval_t;
 
 struct run_state {
 	void* (*op);
-	breg_t *imm;
+	bcval_t *imm;
 };
 
 struct compile_state {
@@ -26,12 +30,12 @@ struct compile_state {
 
 #include "gen/select.h"
 
-gbreg_t run(struct compile_state *cs);
+ubcval_t run(struct compile_state *cs);
 void init(struct compile_state *cs);
 void end(struct compile_state *cs);
 void destroy(struct compile_state *cs);
 
-breg_t label(struct compile_state *cs);
-void patch(struct compile_state *cs, breloc_t reloc, breg_t imm);
+bcval_t label(struct compile_state *cs);
+void patch(struct compile_state *cs, bcreloc_t reloc, bcval_t imm);
 
 #endif /* BCGEN_BCODE_H */

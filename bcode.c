@@ -6,12 +6,14 @@
 
 #include "bcode.h"
 
+#include "gen/head.inc"
+
 enum bcode_insn {
 	END,
 #include "gen/enum.inc"
 };
 
-static void append(struct compile_state *cs, enum bcode_insn label, breg_t imm)
+static void append(struct compile_state *cs, enum bcode_insn label, bcval_t imm)
 {
 	assert(cs->labels);
 
@@ -32,19 +34,22 @@ static void append(struct compile_state *cs, enum bcode_insn label, breg_t imm)
 }
 
 #define RELOC cs->pc
-#define PUSH_OP(label) append(cs, label, (breg_t){ .g = 0 })
-#define PUSH_IMM_OP(label, imm) append(cs, label, (breg_t){ .g = imm })
-#define PUSH_DIMM_OP(label, dimm) append(cs, label, (breg_t){ .f = dimm })
+#define PUSH_OP(label) append(cs, label, (bcval_t){ .r = 0 })
+#define PUSH_IMM_OP(label, imm) append(cs, label, (bcval_t){ .r = imm })
+#define PUSH_DIMM_OP(label, dimm) append(cs, label, (bcval_t){ .d = dimm })
 
 #include "gen/select.inc"
 #include "gen/macro.inc"
 
-#define IMM s.imm[pc].g
-#define DIMM s.imm[pc].f
+#define IMM s.imm[pc].r
+#define SIMM s.imm[pc].s
+#define FIMM s.imm[pc].f
+#define DIMM s.imm[pc].d
+
 #define NEXT_INSN goto *s.op[++pc]
 #define JUMP(i) goto *s.op[pc = (i)]
 
-static gbreg_t _run(struct compile_state *cs, bool init)
+static ubcval_t _run(struct compile_state *cs, bool init)
 {
 	static void *labels[] = {
 		[END] = &&end,
@@ -56,8 +61,8 @@ static gbreg_t _run(struct compile_state *cs, bool init)
 		return 0;
 	}
 
-#include "gen/head.inc"
 #include "gen/regs.inc"
+#include "gen/extra.inc"
 
 	const struct run_state s = cs->s;
 	size_t pc = 0;
@@ -69,7 +74,7 @@ end: /* we assume there's always at least one general register */
 	return r0;
 }
 
-gbreg_t run(struct compile_state *cs)
+ubcval_t run(struct compile_state *cs)
 {
 	return _run(cs, false);
 }
@@ -94,12 +99,12 @@ void end(struct compile_state *cs)
 	PUSH_OP(END);
 }
 
-breg_t label(struct compile_state *cs)
+bcval_t label(struct compile_state *cs)
 {
-	return (breg_t){.g = cs->pc};
+	return (bcval_t){.r = cs->pc};
 }
 
-void patch(struct compile_state *cs, breloc_t reloc, breg_t imm)
+void patch(struct compile_state *cs, bcreloc_t reloc, bcval_t imm)
 {
 	cs->s.imm[reloc] = imm;
 }
