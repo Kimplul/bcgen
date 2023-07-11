@@ -18,7 +18,7 @@ int main()
 						// UNDEFINED macro or something
 	end(&cs);
 
-	patch(&cs, r, l);
+	patch(&cs, r, 0, l);
 
 	printf("%llu\n", (unsigned long long)run(&cs));
 	destroy(&cs);

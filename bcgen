@@ -24,7 +24,7 @@ typedef union {{
 
 struct run_state {{
 	void* (*op);
-	bcval_t *imm;
+        bcval_t *imm[{self.i}];
 }};
 
 struct compile_state {{
@@ -42,7 +42,7 @@ void end(struct compile_state *cs);
 void destroy(struct compile_state *cs);
 
 bcval_t label(struct compile_state *cs);
-void patch(struct compile_state *cs, bcreloc_t reloc, bcval_t imm);
+void patch(struct compile_state *cs, bcreloc_t reloc, size_t i, bcval_t imm);
 
 #endif /* BCGEN_BCODE_H */
 '''
@@ -63,7 +63,8 @@ enum bcode_insn {{
     {self.enum}
 }};
 
-static void append(struct compile_state *cs, enum bcode_insn label, bcval_t imm)
+static void append(struct compile_state *cs, enum bcode_insn label,
+                    size_t n, bcval_t imm[])
 {{
 	assert(cs->labels);
 
@@ -73,28 +74,34 @@ static void append(struct compile_state *cs, enum bcode_insn label, bcval_t imm)
 		void *p = realloc(cs->s.op, cs->size * sizeof(*cs->s.op));
 		assert(p);
 
-		p = realloc(cs->s.imm, cs->size * sizeof(*cs->s.imm));
-		assert(p);
+                for (size_t i = 0; i < {self.i}; ++i) {{
+                    p = realloc(cs->s.imm[i], cs->size * sizeof(*cs->s.imm[i]));
+                    assert(p);
+                }}
 	}}
 
 	struct run_state *s = &cs->s;
 	s->op[cs->pc] = cs->labels[label];
-	s->imm[cs->pc] = imm;
+        for (size_t i = 0; i < n; ++i)
+	    s->imm[i][cs->pc] = imm[i];
+
 	cs->pc++;
 }}
 
 #define RELOC cs->pc
-#define PUSH_OP(label) append(cs, label, (bcval_t){{ .r = 0 }})
-#define PUSH_IMM_OP(label, imm) append(cs, label, (bcval_t){{ .r = imm }})
-#define PUSH_DIMM_OP(label, dimm) append(cs, label, (bcval_t){{ .d = dimm }})
 
 {self.select}
 {self.macro}
 
-#define IMM s.imm[pc].r
-#define SIMM s.imm[pc].s
-#define FIMM s.imm[pc].f
-#define DIMM s.imm[pc].d
+#define IMM0  s.imm[0][pc].r
+#define SIMM0 s.imm[0][pc].s
+#define FIMM0 s.imm[0][pc].f
+#define DIMM0 s.imm[0][pc].d
+
+#define IMM(i)  s.imm[(i)][pc].r
+#define SIMM(i) s.imm[(i)][pc].s
+#define FIMM(i) s.imm[(i)][pc].f
+#define DIMM(i) s.imm[(i)][pc].d
 
 #define NEXT_INSN goto *s.op[++pc]
 #define JUMP(i) goto *s.op[pc = (i)]
@@ -134,8 +141,10 @@ void init(struct compile_state *cs)
 	cs->labels = NULL;
 	cs->size = 16;
 
-	cs->s.imm = malloc(cs->size * sizeof(*cs->s.imm));
-	assert(cs->s.imm);
+        for (size_t i = 0; i < {self.i}; ++i) {{
+            cs->s.imm[i] = malloc(cs->size * sizeof(*cs->s.imm));
+            assert(cs->s.imm[i]);
+        }}
 
 	cs->s.op = malloc(cs->size * sizeof(*cs->s.op));
 	assert(cs->s.op);
@@ -146,7 +155,7 @@ void init(struct compile_state *cs)
 
 void end(struct compile_state *cs)
 {{
-	PUSH_OP(END);
+	append(cs, END, 0, NULL);
 }}
 
 bcval_t label(struct compile_state *cs)
@@ -154,15 +163,17 @@ bcval_t label(struct compile_state *cs)
 	return (bcval_t){{.r = cs->pc}};
 }}
 
-void patch(struct compile_state *cs, bcreloc_t reloc, bcval_t imm)
+void patch(struct compile_state *cs, bcreloc_t reloc, size_t i, bcval_t imm)
 {{
-	cs->s.imm[reloc] = imm;
+	cs->s.imm[i][reloc] = imm;
 }}
 
 void destroy(struct compile_state *cs)
 {{
 	free(cs->s.op);
-	free(cs->s.imm);
+
+        for (size_t i = 0; i < {self.i}; ++i)
+	    free(cs->s.imm[i]);
 }}
 '''
 
@@ -187,10 +198,18 @@ def gen_label(name, r0, r1, r2, r3):
 def gen_enum(name, r0, r1, r2, r3):
     return gen_label(name, r0, r1, r2, r3).upper()
 
+def num_imms(fmt):
+    n = 0
+    for p in fmt[5:]:
+        if p == 'I' or p == 'S' or p == 'D':
+            n += 1
+
+    return n
+
 def gen_params(fmt):
     n = 0
     r = ""
-    for p in fmt[1:-1]:
+    for p in fmt[1:]:
         if p == 'R' or p == 'F':
             # todo: could be useful to have different types for general purpose
             # registers and floating point registers, might avoid bugs that
@@ -198,11 +217,24 @@ def gen_params(fmt):
             r += ', size_t a' + str(n)
             n += 1
 
+        elif p == '_':
+            continue
+
+        else:
+            break
+
+    n = 0
     i = ""
-    if fmt[5] == 'I':
-        i = ', ubcval_t imm'
-    elif fmt[5] == 'D':
-        i = ', fbcval_t dimm'
+    for p in fmt[5:]:
+        if p == 'I':
+            i += ', ubcval_t i' + str(n)
+            n += 1
+        elif p == 'S':
+            i = ', sbcval_t i' + str(n)
+            n += 1
+        elif p == 'D':
+            i = ', fbcval_t i' + str(n)
+            n += 1
 
     return '(struct compile_state *cs' + r + i + ')'
 
@@ -222,13 +254,14 @@ def gen_cond(r, i):
     return 'a' + str(i) + ' == ' + r[1:]
 
 class BCGen:
-    def __init__(self, r = 3, f = 3,
+    def __init__(self, r = 3, f = 3, i = 1,
             ubcval_type = 'unsigned long',
             sbcval_type = 'signed long',
             extra='', head=''):
 
         self.r = r
         self.f = f
+        self.i = i
 
         self.ubcval_type = ubcval_type
         self.sbcval_type = sbcval_type
@@ -328,12 +361,18 @@ class BCGen:
                     for r3 in self.place(fmt, 3):
                         self.gen_select_instance(name, r0, r1, r2, r3)
 
-        if fmt[5] == 'I':
-            self.select.append('PUSH_IMM_OP(label, imm);\n')
-        elif fmt[5] == 'D':
-            self.select.append('PUSH_DIMM_OP(label, dimm);\n')
-        else:
-            self.select.append('PUSH_OP(label);\n')
+        n = num_imms(fmt)
+        imms = "NULL"
+        if n > 0:
+            s = '{i' + str(0) + '}'
+            for i in range(n - 1):
+                s += ', {i' + str(i) + '}'
+
+            self.select.append('bcval_t imms[{n}] = {{{s}}};\n'.format(n=n, s=s))
+            imms = "imms"
+
+
+        self.select.append('append(cs, label, {n}, {imms});\n'.format(n=n, imms=imms))
 
         if fmt[0] == 'r':
             self.select.append('return reloc;\n')
