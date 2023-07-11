@@ -9,8 +9,8 @@ bcode_header_fmt = '''
 
 #include <stddef.h>
 
-typedef unsigned long ubcval_t;
-typedef signed long sbcval_t;
+typedef {self.ubcval_type} ubcval_t;
+typedef {self.sbcval_type} sbcval_t;
 typedef float fbcval_t;
 typedef double dbcval_t;
 typedef size_t bcreloc_t;
@@ -222,15 +222,19 @@ def gen_cond(r, i):
     return 'a' + str(i) + ' == ' + r[1:]
 
 class BCGen:
-    def __init__(self, r = 3, f = 3, extra='', head=''):
+    def __init__(self, r = 3, f = 3,
+            ubcval_type = 'unsigned long',
+            sbcval_type = 'signed long',
+            extra='', head=''):
+
         self.r = r
         self.f = f
 
+        self.ubcval_type = ubcval_type
+        self.sbcval_type = sbcval_type
+
         self.extra = extra
         self.head = head
-
-        gregs = ['ubcval_t r' + str(i) + ' = 0;\n' for i in range(r)]
-        fregs = ['dbcval_t f' + str(i) + ' = 0;\n' for i in range(f)]
 
         self.regs = []
         self.body = []
@@ -239,12 +243,6 @@ class BCGen:
         self.static = []
         self.select = []
         self.select_header = []
-
-        for g in gregs:
-            self.regs += g
-
-        for f in fregs:
-            self.regs += f
 
     def gen_exec_instance(self, name, r0, r1, r2, r3):
         label = gen_label(name, r0, r1, r2, r3) + ': '
@@ -359,6 +357,15 @@ class BCGen:
         self.gen_enum(name, fmt)
 
     def write(self, name='bcode'):
+        gregs = ['ubcval_t r' + str(i) + ' = 0;\n' for i in range(self.r)]
+        fregs = ['dbcval_t f' + str(i) + ' = 0;\n' for i in range(self.f)]
+
+        for g in gregs:
+            self.regs += g
+
+        for f in fregs:
+            self.regs += f
+
         with open(name + '.h', 'w') as f:
             self.select_header = ''.join(self.select_header)
             f.write(bcode_header_fmt.format(self=self))
