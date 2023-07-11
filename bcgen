@@ -34,7 +34,7 @@ struct compile_state {{
 	size_t pc;
 }};
 
-{}
+{self.select_header}
 
 ubcval_t run(struct compile_state *cs);
 void init(struct compile_state *cs);
@@ -54,13 +54,13 @@ bcode_src_fmt = '''
 #include <stddef.h>
 #include <stdbool.h>
 
-#include "{}.h"
+#include "{self.name}.h"
 
-{}
+{self.head}
 
 enum bcode_insn {{
 	END,
-    {}
+    {self.enum}
 }};
 
 static void append(struct compile_state *cs, enum bcode_insn label, bcval_t imm)
@@ -88,8 +88,8 @@ static void append(struct compile_state *cs, enum bcode_insn label, bcval_t imm)
 #define PUSH_IMM_OP(label, imm) append(cs, label, (bcval_t){{ .r = imm }})
 #define PUSH_DIMM_OP(label, dimm) append(cs, label, (bcval_t){{ .d = dimm }})
 
-{}
-{}
+{self.select}
+{self.macro}
 
 #define IMM s.imm[pc].r
 #define SIMM s.imm[pc].s
@@ -103,7 +103,7 @@ static ubcval_t _run(struct compile_state *cs, bool init)
 {{
 	static void *labels[] = {{
 		[END] = &&end,
-        {}
+        {self.static}
 	}};
 
 	if (init) {{
@@ -111,14 +111,14 @@ static ubcval_t _run(struct compile_state *cs, bool init)
 		return 0;
 	}}
 
-{}
-{}
+{self.regs}
+{self.extra}
 
 	const struct run_state s = cs->s;
 	size_t pc = 0;
 	JUMP(pc);
 
-{}
+{self.body}
 
 end: /* we assume there's always at least one general register */
 	return r0;
@@ -360,24 +360,22 @@ class BCGen:
 
     def write(self, name='bcode'):
         with open(name + '.h', 'w') as f:
-            f.write(bcode_header_fmt.format(
-                ''.join(self.select_header)
-                ))
+            self.select_header = ''.join(self.select_header)
+            f.write(bcode_header_fmt.format(self=self))
 
         with open(name + '.c', 'w') as f:
-            # unsure if this is the best way to handle format strings, but I guess
-            # it works for now
-            f.write(bcode_src_fmt.format(
-                name,
-                ''.join(self.head),
-                ''.join(self.enum),
-                ''.join(self.select),
-                ''.join(self.macro),
-                ''.join(self.static),
-                ''.join(self.regs),
-                ''.join(self.extra),
-                ''.join(self.body)
-                ))
+            # join arrays into single strings
+            self.name = name
+            self.head = ''.join(self.head)
+            self.enum = ''.join(self.enum)
+            self.select = ''.join(self.select)
+            self.macro = ''.join(self.macro)
+            self.static = ''.join(self.static)
+            self.regs = ''.join(self.regs)
+            self.extra = ''.join(self.extra)
+            self.body = ''.join(self.body)
+
+            f.write(bcode_src_fmt.format(self=self))
 
 assert(len(sys.argv) == 2)
 exec(open(sys.argv[1]).read())
