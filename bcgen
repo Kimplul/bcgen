@@ -177,16 +177,18 @@ void destroy(struct compile_state *cs)
 }}
 '''
 
-def check_fmt(fmt):
+def check_fmt(fmt, imms):
     # todo: should sign value be encoded in the registers?
-    assert(len(fmt) == 6)
+    assert(len(fmt) == 5 + imms)
     assert(fmt[0] == '_' or fmt[0] == 'r')
 
     for i in range(1, 5):
         c = fmt[i]
         assert(c == 'R' or c == 'F' or c == '_')
 
-    assert(fmt[5] == '_' or fmt[5] == 'I' or fmt[5] == 'D')
+    for i in range(5, 5 + imms):
+        c = fmt[i]
+        assert(c == '_' or c == 'I' or c == 'D' or c == 'S')
 
 def param(fmt, i):
     c = fmt[i + 1]
@@ -388,7 +390,7 @@ class BCGen:
 
 
     def rule(self, name, fmt, body):
-        check_fmt(fmt)
+        check_fmt(fmt, self.i)
         self.gen_macro(name, fmt, body)
         self.gen_static(name, fmt)
         self.gen_select(name, fmt)
