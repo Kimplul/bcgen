@@ -20,6 +20,14 @@ int main()
 
 	patch(&cs, r, 0, l);
 
-	printf("%llu\n", (unsigned long long)run(&cs));
+	/* specify register state to run, note that seven is taken from
+	 * r = 7 in rules.py, should probably provide a macro for it? */
+	ubcval_t ri[7] = {0};
+
+	/* since we don't use floating point registers, we can pass in a NULL */
+	run(&cs, ri, NULL);
+
+	/* our 'ABI' specifies that the return register is 0 */
+	printf("%llu\n", (unsigned long long)ri[0]);
 	destroy(&cs);
 }

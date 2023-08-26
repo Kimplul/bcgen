@@ -36,7 +36,7 @@ struct compile_state {{
 
 {self.select_header}
 
-ubcval_t run(struct compile_state *cs);
+void run(struct compile_state *cs, ubcval_t ri[{self.r}], dbcval_t fi[{self.f}]);
 void init(struct compile_state *cs);
 void end(struct compile_state *cs);
 void destroy(struct compile_state *cs);
@@ -106,8 +106,13 @@ static void append(struct compile_state *cs, enum bcode_insn label,
 #define NEXT_INSN goto *s.op[++pc]
 #define JUMP(i) goto *s.op[pc = (i)]
 
-static ubcval_t _run(struct compile_state *cs, bool init)
+static void _run(struct compile_state *cs, bool init,
+    ubcval_t ri[{self.r}],
+    dbcval_t fi[{self.f}])
 {{
+        // silence warnings if zero registers defined
+        (void)ri;
+        (void)fi;
 	static void *labels[] = {{
 		[END] = &&end,
         {self.static}
@@ -115,7 +120,7 @@ static ubcval_t _run(struct compile_state *cs, bool init)
 
 	if (init) {{
 		cs->labels = labels;
-		return 0;
+		return;
 	}}
 
 {self.regs}
@@ -127,13 +132,14 @@ static ubcval_t _run(struct compile_state *cs, bool init)
 
 {self.body}
 
-end: /* we assume there's always at least one general register */
-	return r0;
+end:
+        {self.rregs}
+	return;
 }}
 
-ubcval_t run(struct compile_state *cs)
+void run(struct compile_state *cs, ubcval_t ri[{self.r}], dbcval_t fi[{self.f}])
 {{
-	return _run(cs, false);
+	_run(cs, false, ri, fi);
 }}
 
 void init(struct compile_state *cs)
@@ -150,7 +156,7 @@ void init(struct compile_state *cs)
 	assert(cs->s.op);
 
 	cs->pc = 0;
-	_run(cs, true);
+	_run(cs, true, NULL, NULL);
 }}
 
 void end(struct compile_state *cs)
@@ -274,6 +280,7 @@ class BCGen:
         self.regs = []
         self.body = []
         self.enum = []
+        self.rregs = []
         self.macro = []
         self.static = []
         self.select = []
@@ -398,14 +405,27 @@ class BCGen:
         self.gen_enum(name, fmt)
 
     def write(self, name='bcode'):
-        gregs = ['ubcval_t r' + str(i) + ' = 0;\n' for i in range(self.r)]
-        fregs = ['dbcval_t f' + str(i) + ' = 0;\n' for i in range(self.f)]
+        gregs = ['ubcval_t r' + str(i) + ' = ri[' + str(i) + '];\n'
+                    for i in range(self.r)]
+        fregs = ['dbcval_t f' + str(i) + ' = fi[' + str(i) + '];\n'
+                    for i in range(self.f)]
+
+        rgregs = ['ri[' + str(i) + '] = r' + str(i) + ';\n'
+                    for i in range(self.r)]
+        rfregs = ['fi[' + str(i) + '] = f' + str(i) +';\n'
+                    for i in range(self.f)]
 
         for g in gregs:
             self.regs += g
 
         for f in fregs:
             self.regs += f
+
+        for g in rgregs:
+            self.rregs += g
+
+        for f in rfregs:
+            self.rregs += f
 
         with open(name + '.h', 'w') as f:
             self.select_header = ''.join(self.select_header)
@@ -422,6 +442,7 @@ class BCGen:
             self.regs = ''.join(self.regs)
             self.extra = ''.join(self.extra)
             self.body = ''.join(self.body)
+            self.rregs = ''.join(self.rregs)
 
             f.write(bcode_src_fmt.format(self=self))
 
