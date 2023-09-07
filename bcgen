@@ -71,12 +71,12 @@ static void append(struct compile_state *cs, enum bcode_insn label,
 	if (cs->pc == cs->size) {{
 		cs->size *= 2;
 		/* better memory checks could be a good idea */
-		void *p = realloc(cs->s.op, cs->size * sizeof(*cs->s.op));
-		assert(p);
+		cs->s.op = realloc(cs->s.op, cs->size * sizeof(*cs->s.op));
+		assert(cs->s.op);
 
                 for (size_t i = 0; i < {self.i}; ++i) {{
-                    p = realloc(cs->s.imm[i], cs->size * sizeof(*cs->s.imm[i]));
-                    assert(p);
+                    cs->s.imm[i] = realloc(cs->s.imm[i], cs->size * sizeof(*cs->s.imm[i]));
+                    assert(cs->s.imm[i]);
                 }}
 	}}
 
