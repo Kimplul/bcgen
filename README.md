@@ -19,19 +19,36 @@ Here's an example `rules.py`:
 ```
 g = BCGen(r = 4, f = 0)
 g.rule('addi', 'rRR__I', 'R0 = R1 + IMM;')
+g.write()
 ```
 
-`BCGen()` is the generator class. It has three optional parameters:
-+ `r` for number of general purpose registers.
-+ `f` for number of floating point registers.
-+ `head` for user configurable code, placed just before execution of the bytecode.
+`BCGen()` is the generator class. It has a number of optional parameters:
+
++ `r` for number of general purpose registers, default to 3.
+
++ `f` for number of floating point registers, default to 3.
+
++ `i` for number of immediates an operation can take, default to 1.
+
++ `ubcval_type` for type to use for general purpose registers,
+        default to `unsigned long`
+
++ `sbcval_type` for signed equivalent of `ubcval_type`,
+        default to `signed long`.
+
++ `head` for user configurable code to be inserted at the head
+        of the genrated bytecode, useful for defining helper functions etc.
+
++ `extra` for user configurable code to be inserted right before
+        bytecode interpreting. Useful for defining variables to store temporary
+        values to etc.
 
 `rule()` is the workhorse here. It takes three parameters:
 + `name` for the instruction name.
 + `fmt` for the instruction format.
 + `body` for the instruction body.
 
-The `fmt` parameter is a string of six characters, from left to right:
+The `fmt` parameter is a string of at least five characters, from left to right:
 
 1) Relocation slot, `r` or `_`
 
@@ -45,16 +62,21 @@ later be patched with a value. `_` means that no relocation is necessary.
 in a number for each register slot that is the index of the register to use. Each
 operation can take a maximum of four register arguments.
 
-3) Immediate slot, `I`, `D` or `_`:
+3) Immediate slots, `I`, `D` or `_`, as many as the `i` parameter to `BCGen()`:
 
 `I` refers to an integer immediate value, `D` refers to a floating point immediate value.
-`_` means the slot is unused. The user can pass in an immediate value that is accessible
-to the operation at runtime.
+`_` means the slot is unused. The user can pass in immediate values that are accessible
+to the operation at runtime via `IMM(i)/SIMM(i)/FIMM(i)/DIMM(i)`, for unsigned
+integer, signed integer, float and double respectively. `i` specifies which
+immedate slot is used. Immediate slot 0 has special shorthands
+`IMM0/SIMM0/FIMM0/DIMM0` to reduce typing.
+
+
+### Body
 
 The body of the instruction is what gets executed. The register arguments are referenced
 via `R` + slot index for the general purpose registers and `F` + slot index for the
-floating point registers. Immediate values are accessed via `IMM` for integer and `DIMM`
-for doubles, respectively.
+floating point registers.
 
 The index to use when specifying register arguments is the register slot index, so for
 exampl the format `_R_FR_` makes registers `R0`, `F2` and `R3` available to the body.
@@ -69,11 +91,15 @@ use, and map to `R0` and `R1`. The immediate is always last, and in this case it
 `500`. One way to look at the situation is that we're requesting that a bytecode
 instruction be compiled where register 2 plus `500` be placed into register 0.
 
+Note that it can be easy to mix up which parameters are for register indexes
+and which are for immediate values. A possible future improvement is wrapping
+register indexes in their own struct, similar to `lightening`.
+
 ## Jumps
 
-By default the following bytecode instruction is executed automatically. You can however
-specify explicit jumps, such as in branches, by `JUMP(target)`. The target can be patched
-in later or be specified as an immediate. For example:
+By default the bytecode instruction following the current one is executed automatically.
+You can however specify explicit jumps, such as in branches, by `JUMP(target)`.
+The target can be patched in later or be specified as an argument. For example:
 ```
 # rules.py
 ...
@@ -81,18 +107,20 @@ g.rule('beq', 'rRR__I', 'if (R0 == R1) JUMP(IMM);')
 ```
 ```
 // file.c
-breg_t label = label();
+bcval_t label = label();
 ...
 select_beq(0, 1, label.g); // we already know where we want to jump
 
 // OR
-breg_t reloc = select_beq(0, 1, 0); // zero is placeholder
+bcreloc_t reloc = select_beq(0, 1, 0); // zero is placeholder
 ...
-breloc_t label = label();
-patch(reloc, label); // now we know where we want to jump
+bcval_t label = label();
+patch(reloc, 0, label); // now we know where we want to jump
 ```
 
-(Note that the patch system should be improved, but good enough for now)
+The `patch()` procedure takes a relocation to patch, which immediate slot we
+want to patch and the value to place in the relocation at the immediate slot.
+(Note that the patch system probably should/could be improved, but good enough for now.)
 
 See `example` for a simple test program that generates a limited set of operations
 that are enough to sum the first billion integers.
@@ -140,16 +168,12 @@ simple demonstration. However, I think the performance figures are
 pretty impressive for what it is. A JIT system will essentially always
 beat this system in speed, but this is trivially portable and the
 code generation is ligtning fast.
+See comparisons in https://github.com/Kimplul/jit-comparison.
 
 A fairly close match in the JIT world is `lightning` (and its lighter fork,
 `lightening`). My intention is to try and use this tool to generate a bytecode
 backend for `lightening` as a fallback for platforms that `lightening` doesn't
 yet support to create a 'universal' low level virtual machine.
-
-Currently you may have to manually modify `bcode.c` to suit your project,
-for example adding headers etc. I might improve the tool to output a single
-header + implementation file, similar to `flex` and/or `bison` but the current
-method is good enough for now.
 
 No restrictions are placed on register count or instruction count.
 The instruction count increases the size and compile time linearly, but register
@@ -161,10 +185,7 @@ up considerably.
 
 Finally, note that the system doesn't assign any specific usage conventions
 to registers. You are responsible for maintaining an ABI of some kind, with
-stack/frame register(s), callee-save vs. caller-save, etc. How the stack should
-be passed to the bytecode is still TODO, at the moment you can preallocate the
-stack and pass it in as an immediate to an instruction, but this feels clunky
-and I don't like it.
+stack/frame register(s), callee-save vs. caller-save, etc.
 
 # Slow compilation times
 

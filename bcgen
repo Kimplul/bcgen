@@ -75,7 +75,8 @@ static void append(struct compile_state *cs, enum bcode_insn label,
 		assert(cs->s.op);
 
                 for (size_t i = 0; i < {self.i}; ++i) {{
-                    cs->s.imm[i] = realloc(cs->s.imm[i], cs->size * sizeof(*cs->s.imm[i]));
+                    cs->s.imm[i] = realloc(cs->s.imm[i],
+                        cs->size * sizeof(*cs->s.imm[i]));
                     assert(cs->s.imm[i]);
                 }}
 	}}
