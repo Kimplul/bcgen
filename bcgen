@@ -7,6 +7,7 @@ bcode_header_fmt = '''
 #ifndef BCGEN_BCODE_H
 #define BCGEN_BCODE_H
 
+#include <stdio.h>
 #include <stddef.h>
 
 typedef {self.ubcval_type} ubcval_t;
@@ -215,6 +216,26 @@ def num_imms(fmt):
 
     return n
 
+def gen_hash(fmt):
+    n = 0
+    i = 0
+    r = ""
+    for p in fmt[1:]:
+        if p == 'R' or p == 'F':
+            r += ' + (a' + str(n) + ' << (' + str(i) + ' * 8))'
+            n += 1
+            i += 1
+
+        elif p == '_':
+            i += 1
+            continue
+
+        else:
+            break
+
+    return r
+
+
 def gen_params(fmt):
     n = 0
     r = ""
@@ -258,9 +279,9 @@ def gen_signature(name, fmt):
 
 def gen_cond(r, i):
     if r == '':
-        return '1'
+        return ' + 0'
 
-    return 'a' + str(i) + ' == ' + r[1:]
+    return ' + (' + r[1:] + ' << (' + str(i) + ' * 8))'
 
 class BCGen:
     def __init__(self, r = 3, f = 3, i = 1,
@@ -304,9 +325,9 @@ class BCGen:
         c1 = gen_cond(r1, 1)
         c2 = gen_cond(r2, 2)
         c3 = gen_cond(r3, 3)
-        cond = c0 + ' && ' + c1 + ' && ' + c2 + ' && ' + c3
+        cond = c0 + c1 + c2 + c3
         action = 'label = ' + gen_enum(name, r0, r1, r2, r3) + ';'
-        self.select.append('else if (' + cond + ') {' + action + '}\n')
+        self.select.append('case ' + cond + ': {' + action + '}; break;\n')
 
     def gen_enum_instance(self, name, r0, r1, r2, r3):
         enum = gen_enum(name, r0, r1, r2, r3)
@@ -353,14 +374,14 @@ class BCGen:
         sign = gen_signature(name, fmt)
         self.select_header.append(sign + ';\n')
 
-        sign = gen_signature(name, fmt)
         self.select.append(sign + '\n')
         self.select.append('{\nenum bcode_insn label = 0;\n')
         if fmt[0] == 'r':
             self.select.append('bcreloc_t reloc = RELOC;\n')
 
-        # kind of ugly but simplifies gen_select_instance a fair bit
-        self.select.append('if (0) {}\n')
+        calc_hash = gen_hash(fmt);
+        self.select.append('unsigned long hash = ' + calc_hash + ';\n');
+        self.select.append('switch (hash) {\n')
 
         # we could potentially just calculate the wanted label directly and skip
         # the huge number of if statements, potentially giving us a slight
@@ -370,6 +391,9 @@ class BCGen:
                 for r2 in self.place(fmt, 2):
                     for r3 in self.place(fmt, 3):
                         self.gen_select_instance(name, r0, r1, r2, r3)
+
+        self.select.append('default: fprintf(stderr,' +
+                           '"invalid args to ' + name + '"); abort(); }\n')
 
         n = num_imms(fmt)
         imms = "NULL"
