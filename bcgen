@@ -219,7 +219,7 @@ def num_imms(fmt):
 def gen_hash(fmt):
     n = 0
     i = 0
-    r = ""
+    r = "0"
     for p in fmt[1:]:
         if p == 'R' or p == 'F':
             r += ' + (a' + str(n) + ' << (' + str(i) + ' * 8))'
