@@ -10,11 +10,14 @@ bcode_header_fmt = '''
 #include <stdio.h>
 #include <stddef.h>
 
-typedef {self.ubcval_type} ubcval_t;
-typedef {self.sbcval_type} sbcval_t;
+struct run_state;
+
 typedef float fbcval_t;
 typedef double dbcval_t;
 typedef size_t bcreloc_t;
+typedef {self.ubcval_type} ubcval_t;
+typedef {self.sbcval_type} sbcval_t;
+typedef void (*bcall_t)({self.params});
 
 typedef union {{
 	ubcval_t r;
@@ -30,7 +33,6 @@ struct run_state {{
 
 struct compile_state {{
 	struct run_state s;
-	void* (*labels);
 	size_t size;
 	size_t pc;
 }};
@@ -57,18 +59,17 @@ bcode_src_fmt = '''
 
 #include "{self.name}.h"
 
+#if __has_attribute(musttail)
+#define __musttail __attribute__((musttail))
+#else
+#define __musttail
+#endif
+
 {self.head}
 
-enum bcode_insn {{
-	END,
-    {self.enum}
-}};
-
-static void append(struct compile_state *cs, enum bcode_insn label,
+static void append(struct compile_state *cs, bcall_t op,
                     size_t n, bcval_t imm[])
 {{
-	assert(cs->labels);
-
 	if (cs->pc == cs->size) {{
 		cs->size *= 2;
 		/* better memory checks could be a good idea */
@@ -83,7 +84,7 @@ static void append(struct compile_state *cs, enum bcode_insn label,
 	}}
 
 	struct run_state *s = &cs->s;
-	s->op[cs->pc] = cs->labels[label];
+	s->op[cs->pc] = op;
         for (size_t i = 0; i < n; ++i)
 	    s->imm[i][cs->pc] = imm[i];
 
@@ -92,61 +93,38 @@ static void append(struct compile_state *cs, enum bcode_insn label,
 
 #define RELOC cs->pc
 
-{self.select}
-{self.macro}
-
-#define IMM0  s.imm[0][pc].r
-#define SIMM0 s.imm[0][pc].s
-#define FIMM0 s.imm[0][pc].f
-#define DIMM0 s.imm[0][pc].d
-
 #define IMM(i)  s.imm[(i)][pc].r
 #define SIMM(i) s.imm[(i)][pc].s
 #define FIMM(i) s.imm[(i)][pc].f
 #define DIMM(i) s.imm[(i)][pc].d
 
-#define NEXT_INSN goto *s.op[++pc]
-#define JUMP(i) goto *s.op[pc = (i)]
+#define IMM0  IMM(0)
+#define SIMM0 SIMM(0)
+#define FIMM0 FIMM(0)
+#define DIMM0 DIMM(0)
 
-static void _run(struct compile_state *cs, bool init,
+#define NEXT_INSN() __musttail return ((bcall_t)s.op[++pc])({self.args})
+#define JUMP(i) __musttail return ((bcall_t)s.op[pc = (i)])({self.args})
+
+{self.macro}
+{self.ops}
+{self.select}
+
+
+void run(struct compile_state *cs,
     ubcval_t ri[{self.r}],
     dbcval_t fi[{self.f}])
 {{
         // silence warnings if zero registers defined
         (void)ri;
         (void)fi;
-	static void *labels[] = {{
-		[END] = &&end,
-        {self.static}
-	}};
-
-	if (init) {{
-		cs->labels = labels;
-		return;
-	}}
-
-{self.regs}
-{self.extra}
 
 	const struct run_state s = cs->s;
-	size_t pc = 0;
-	JUMP(pc);
-
-{self.body}
-
-end:
-        {self.rregs}
-	return;
-}}
-
-void run(struct compile_state *cs, ubcval_t ri[{self.r}], dbcval_t fi[{self.f}])
-{{
-	_run(cs, false, ri, fi);
+        return ((bcall_t)s.op[0])({self.init_args});
 }}
 
 void init(struct compile_state *cs)
 {{
-	cs->labels = NULL;
 	cs->size = 16;
 
         for (size_t i = 0; i < {self.i}; ++i) {{
@@ -158,12 +136,21 @@ void init(struct compile_state *cs)
 	assert(cs->s.op);
 
 	cs->pc = 0;
-	_run(cs, true, NULL, NULL);
+}}
+
+void bcend({self.params})
+{{
+    (void)(s);
+    (void)(pc);
+    (void)(ri);
+    (void)(fi);
+    {self.end_copy}
+    return;
 }}
 
 void end(struct compile_state *cs)
 {{
-	append(cs, END, 0, NULL);
+	append(cs, bcend, 0, NULL);
 }}
 
 bcval_t label(struct compile_state *cs)
@@ -202,11 +189,8 @@ def param(fmt, i):
     c = fmt[i + 1]
     return c + str(i)
 
-def gen_label(name, r0, r1, r2, r3):
+def gen_fname(name, r0, r1, r2, r3):
     return '{}_{}{}{}{}'.format(name, r0, r1, r2, r3)
-
-def gen_enum(name, r0, r1, r2, r3):
-    return gen_label(name, r0, r1, r2, r3).upper()
 
 def num_imms(fmt):
     n = 0
@@ -236,7 +220,7 @@ def gen_hash(fmt):
     return r
 
 
-def gen_params(fmt):
+def gen_select_params(fmt):
     n = 0
     r = ""
     for p in fmt[1:]:
@@ -268,13 +252,13 @@ def gen_params(fmt):
 
     return '(struct compile_state *cs' + r + i + ')'
 
-def gen_signature(name, fmt):
+def gen_select_signature(name, fmt):
     ret = 'void '
     if fmt[0] == 'r':
         ret = 'bcreloc_t '
 
     n = 'select_' + name
-    p = gen_params(fmt)
+    p = gen_select_params(fmt)
     return ret + n + p
 
 def gen_cond(r, i):
@@ -282,6 +266,67 @@ def gen_cond(r, i):
         return ' + 0'
 
     return ' + (' + r[1:] + ' << (' + str(i) + ' * 8))'
+
+
+def gen_params(r, f):
+    # pc and run state most important to place in registers
+    pc = ["const struct run_state s, size_t pc"]
+
+    # general purpose registers after that
+    gregs = [', ubcval_t r' + str(i)
+                for i in range(r)]
+
+    # floating point after that
+    fregs = [', dbcval_t f' + str(i)
+                for i in range(f)]
+
+    # return values last, as they can perfectly well be passed on the stack,
+    # they're only accessed at the end of an execution
+    rgregs = [', ubcval_t ri[' + str(r) + ']']
+    rfregs = [', dbcval_t fi[' + str(f) + ']']
+
+    params = pc + gregs + fregs + rgregs + rfregs
+    return ''.join(params)
+
+def gen_args(r, f):
+    pc = ["s, pc"]
+    gregs = [', r' + str(i)
+                for i in range(r)]
+
+    fregs = [', f' + str(i)
+                for i in range(f)]
+
+    rgregs = [', ri']
+    rfregs = [', fi']
+
+    args = pc + gregs + fregs + rgregs + rfregs
+    return ''.join(args)
+
+
+def gen_init_args(r, f):
+    pc = ["s, 0"]
+    gregs = [', ri[' + str(i) + ']'
+                for i in range(r)]
+
+    fregs = [', fi[' + str(i) + ']'
+                for i in range(f)]
+
+    rgregs = [', ri']
+    rfregs = [', fi']
+
+    init_args = pc + gregs + fregs + rgregs + rfregs
+    return ''.join(init_args)
+
+def gen_end_copy(r, f):
+    gregs = ['ri[' + str(i) + '] = r' + str(i) + ';\n'
+                for i in range(r)]
+
+    fregs = ['fi[' + str(i) + '] = f' + str(i) + ';\n'
+                for i in range(f)]
+
+    end_copy = gregs + fregs
+    return ''.join(end_copy)
+
 
 class BCGen:
     def __init__(self, r = 3, f = 3, i = 1,
@@ -299,26 +344,24 @@ class BCGen:
         self.extra = extra
         self.head = head
 
-        self.regs = []
-        self.body = []
-        self.enum = []
+        self.ops = []
         self.rregs = []
         self.macro = []
         self.static = []
         self.select = []
         self.select_header = []
 
-    def gen_exec_instance(self, name, r0, r1, r2, r3):
-        label = gen_label(name, r0, r1, r2, r3) + ': '
-        macro = '{}({}, {}, {}, {}); '.format(name.upper(), r0, r1, r2, r3)
-        next = 'NEXT_INSN;'
-        self.body.append(label + macro + next + '\n')
+        self.args = gen_args(r, f)
+        self.params = gen_params(r, f)
+        self.init_args = gen_init_args(r, f)
+        self.end_copy = gen_end_copy(r, f)
 
-    # gen should maybe just generate the string and print_ would print it?
-    def gen_static_instance(self, name, r0, r1, r2, r3):
-        label = gen_label(name, r0, r1, r2, r3)
-        enum = gen_enum(name, r0, r1, r2, r3)
-        self.static.append('[' + enum + '] = &&' + label + ',\n')
+    def gen_exec_instance(self, name, r0, r1, r2, r3):
+        fn = gen_fname(name, r0, r1, r2, r3)
+        macro = '{}({}, {}, {}, {}); '.format(name.upper(), r0, r1, r2, r3)
+        op = "static void " + fn + "(" + self.params + ")\n"
+        body = "{\n" + macro + "NEXT_INSN();\n}\n"
+        self.ops.append(op + body)
 
     def gen_select_instance(self, name, r0, r1, r2, r3):
         c0 = gen_cond(r0, 0)
@@ -326,12 +369,8 @@ class BCGen:
         c2 = gen_cond(r2, 2)
         c3 = gen_cond(r3, 3)
         cond = c0 + c1 + c2 + c3
-        action = 'label = ' + gen_enum(name, r0, r1, r2, r3) + ';'
+        action = 'fn = ' + gen_fname(name, r0, r1, r2, r3) + ';'
         self.select.append('case ' + cond + ': {' + action + '}; break;\n')
-
-    def gen_enum_instance(self, name, r0, r1, r2, r3):
-        enum = gen_enum(name, r0, r1, r2, r3)
-        self.enum.append(enum + ',\n')
 
     def gen_macro(self, name, fmt, body):
         name = name.upper()
@@ -356,26 +395,19 @@ class BCGen:
 
         return [""]
 
-    def gen_body(self, name, fmt):
+    def gen_ops(self, name, fmt):
         for r0 in self.place(fmt, 0):
             for r1 in self.place(fmt, 1):
                 for r2 in self.place(fmt, 2):
                     for r3 in self.place(fmt, 3):
                         self.gen_exec_instance(name, r0, r1, r2, r3)
 
-    def gen_static(self, name, fmt):
-        for r0 in self.place(fmt, 0):
-            for r1 in self.place(fmt, 1):
-                for r2 in self.place(fmt, 2):
-                    for r3 in self.place(fmt, 3):
-                        self.gen_static_instance(name, r0, r1, r2, r3)
-
     def gen_select(self, name, fmt):
-        sign = gen_signature(name, fmt)
+        sign = gen_select_signature(name, fmt)
         self.select_header.append(sign + ';\n')
 
         self.select.append(sign + '\n')
-        self.select.append('{\nenum bcode_insn label = 0;\n')
+        self.select.append('{\nbcall_t fn = NULL;\n')
         if fmt[0] == 'r':
             self.select.append('bcreloc_t reloc = RELOC;\n')
 
@@ -406,51 +438,21 @@ class BCGen:
             imms = "imms"
 
 
-        self.select.append('append(cs, label, {n}, {imms});\n'.format(n=n, imms=imms))
+        self.select.append('append(cs, fn, {n}, {imms});\n'.format(n=n, imms=imms))
 
         if fmt[0] == 'r':
             self.select.append('return reloc;\n')
 
         self.select.append('}\n')
 
-    def gen_enum(self, name, fmt):
-        for r0 in self.place(fmt, 0):
-            for r1 in self.place(fmt, 1):
-                for r2 in self.place(fmt, 2):
-                    for r3 in self.place(fmt, 3):
-                        self.gen_enum_instance(name, r0, r1, r2, r3)
-
 
     def rule(self, name, fmt, body):
         check_fmt(fmt, self.i)
         self.gen_macro(name, fmt, body)
-        self.gen_static(name, fmt)
         self.gen_select(name, fmt)
-        self.gen_body(name, fmt)
-        self.gen_enum(name, fmt)
+        self.gen_ops(name, fmt)
 
     def write(self, name='bcode'):
-        gregs = ['ubcval_t r' + str(i) + ' = ri[' + str(i) + '];\n'
-                    for i in range(self.r)]
-        fregs = ['dbcval_t f' + str(i) + ' = fi[' + str(i) + '];\n'
-                    for i in range(self.f)]
-
-        rgregs = ['ri[' + str(i) + '] = r' + str(i) + ';\n'
-                    for i in range(self.r)]
-        rfregs = ['fi[' + str(i) + '] = f' + str(i) +';\n'
-                    for i in range(self.f)]
-
-        for g in gregs:
-            self.regs += g
-
-        for f in fregs:
-            self.regs += f
-
-        for g in rgregs:
-            self.rregs += g
-
-        for f in rfregs:
-            self.rregs += f
 
         with open(name + '.h', 'w') as f:
             self.select_header = ''.join(self.select_header)
@@ -460,14 +462,9 @@ class BCGen:
             # join arrays into single strings
             self.name = name
             self.head = ''.join(self.head)
-            self.enum = ''.join(self.enum)
             self.select = ''.join(self.select)
             self.macro = ''.join(self.macro)
-            self.static = ''.join(self.static)
-            self.regs = ''.join(self.regs)
-            self.extra = ''.join(self.extra)
-            self.body = ''.join(self.body)
-            self.rregs = ''.join(self.rregs)
+            self.ops = ''.join(self.ops)
 
             f.write(bcode_src_fmt.format(self=self))
 

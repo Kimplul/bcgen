@@ -1,4 +1,4 @@
-CFLAGS = -Wall -Wextra -g -O2 -fno-tree-fre -fno-gcse -fno-expensive-optimizations
+CFLAGS = -Wall -Wextra -g -O2
 
 all: exec
 
