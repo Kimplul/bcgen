@@ -205,3 +205,29 @@ LLVM users should use `-fno-slp-vectorize` which does help a bit, but
 `-ftime-report` doesn't show any obvious other flags that should be turned off.
 I'm sure there are, I just haven't looked hard enough. In any case, GCC I
 suppose is the currently recommended compiler.
+
+# Using tailcalls instead of a single massive function
+
+I've seen some things online about using tailcalls to produce faster
+bytecode interpreters, so as an experiment, I modified the generator
+to output tailcalls instead, where each operation corresponds to a
+single function that uses tailcalls to the next operation.
+The modifications can be found in the `tailcalls` branch.
+
+In practice, it seems that this method has a slightly higher
+runtime overhead due to the fact that calling conventions typically allow only
+a fairly small number of physical registers to map the virtual registers to,
+leading to more stack accesses than with a single huge function. Additionally,
+some architecture don't seem to support tailcalls, or at least not efficient
+ones, so tailcalls may be less portable than this method. Would be interesting
+to see if the situation changes with the `musttail` attribute possibly being
+standardized.
+
+Seemingly main advantage of tailcalls seems to be that the library compiles
+quite a bit quicker, as compiler are typically more geared towards handling
+lots of small functions over single massive ones.
+
+Although, please keep in mind that this bytecode generator is only interested
+in producing machine-like bytecode, and wouldn't necessarily be as well
+suited for a higher-level bytecode that languages like Python uses, where
+tailcalls may well be a better fit.
